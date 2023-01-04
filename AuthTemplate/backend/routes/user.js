@@ -1,17 +1,92 @@
-const express = require("express");
-const router = express.Router();
+// const express = ;
+const router = require("express").Router();
+
 const { check, validationResult } = require("express-validator");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-// const bodyParser = require("body-parser");
-// const userModal = require("../modals/user");
+const bodyParser = require("body-parser");
+
+const User = require("../modals/user");
 
 router.post(
-  "./signup",
+  "/signup",
   [
-    check("userName", "Please Enter a valid User Name").not().isEmpty(),
-    check("userEmail", "Please Enter a valid User Password").isEmail(),
-    check("userPassword", "Please Enter a valid User Password").isLength({
+    check("username", "Please Enter a Valid Username"),
+    check("email", "Please enter a valid email").isEmail(),
+    check("password", "Please enter a valid password").isLength({
+      min: 6,
+    }),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    // console.log("err", errors);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        errors: errors.array(),
+      });
+    }
+
+    const body = req.body;
+
+    // console.log(req);
+    const username = body.username;
+    const email = body.email;
+    const password = body.password;
+
+    try {
+      let user = await User.findOne({
+        email,
+      });
+      if (user) {
+        return res.status(400).json({
+          msg: "User Already Exists",
+        });
+      }
+
+      user = new User({
+        username,
+        email,
+        password,
+      });
+
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(password, salt);
+
+      await user.save();
+      // console.log(user, "user");
+
+      const payload = {
+        user: {
+          id: user.id,
+        },
+      };
+      // console.log("payload", payload);
+
+      jwt.sign(
+        payload,
+        "randomString",
+        {
+          expiresIn: 10000,
+        },
+        (err, token) => {
+          if (err) throw err;
+          res.status(200).json({
+            token,
+          });
+        }
+      );
+    } catch (err) {
+      console.log(err.message);
+      res.status(500).send("Error in Saving");
+    }
+  }
+);
+
+router.post(
+  "/login",
+  [
+    check("email", "Please enter a valid email").isEmail(),
+    check("password", "Please enter a valid password").isLength({
       min: 6,
     }),
   ],
@@ -23,28 +98,27 @@ router.post(
       });
     }
 
-    console.log(req.body);
-    const { userName, userEmail, UserPassword } = req.body;
+    const body = req.body;
+    const email = body.email;
+    const password = body.password;
 
     try {
       let user = await User.findOne({
-        userEmail,
+        email,
       });
-      if (user) {
+      if (!user) {
         return res.status(400).json({
-          msg: "User Already Present",
+          msg: "User Not Registered",
         });
       }
-      user = new User({
-        userName,
-        userEmail,
-        UserPassword,
-      });
 
-      const salt = await bcrypt.genSalt(10);
-      user.UserPassword = await bcrypt.hash(UserPassword, salt);
+      const isMatch = await bcrypt.compare(password, user.password);
 
-      await user.save();
+      if (!isMatch) {
+        return res.status(401).json({
+          msg: "Incorrect Password",
+        });
+      }
 
       const payload = {
         user: {
@@ -56,18 +130,18 @@ router.post(
         payload,
         "randomString",
         {
-          expiresIn: 10000,
+          expiresIn: 3600,
         },
         (err, token) => {
           if (err) throw err;
-          res.send(200).json({
+          res.status(200).json({
             token,
           });
         }
       );
-    } catch (error) {
-      console.log(error.message);
-      res.status(500).send("Error in Saving");
+    } catch (err) {
+      console.log(err.message);
+      res.status(500).send("Server Error");
     }
   }
 );
